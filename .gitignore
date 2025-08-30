@@ -50,3 +50,4 @@ venv.bak/
 
 # Tailwind CSS output
 # **/output.css
+broker_credentials.txt
