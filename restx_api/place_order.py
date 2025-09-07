@@ -26,10 +26,14 @@ class PlaceOrder(Resource):
             # Extract API key without removing it from the original data
             api_key = data.get('apikey', None)
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to place the order
             success, response_data, status_code = place_order(
                 order_data=data,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

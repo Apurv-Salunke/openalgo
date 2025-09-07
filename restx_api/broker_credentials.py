@@ -164,16 +164,11 @@ class BrokerSetup(Resource):
                 feed_token = auth_result.get('feed_token')
                 broker_user_id = auth_result.get('user_id')
                 
-                if auth_token:
-                    # Import here to avoid circular imports
-                    from database.auth_db import add_auth, get_auth_token
-                    
-                    # Store in auth table
-                    add_auth(user_id, auth_token, broker_name, feed_token, broker_user_id)
-                    
-                    logger.info(f"Successfully set up and validated {broker_name} for user {user_id}")
-                    
-                    return {
+                # Authentication successful - tokens already stored by BrokerAuthService
+                # No need to trigger master contract download for API setup
+                logger.info(f"Successfully set up and validated {broker_name} for user {user_id}")
+                
+                return {
                         'success': True,
                         'message': f'Successfully configured and validated {broker_name} credentials',
                         'broker_name': broker_name,

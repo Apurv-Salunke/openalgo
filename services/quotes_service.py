@@ -108,15 +108,25 @@ def get_quotes(
         - Response data (dict)
         - HTTP status code (int)
     """
-    # Case 1: API-based authentication
-    if api_key and not (auth_token and broker):
-        AUTH_TOKEN, FEED_TOKEN, broker_name = get_auth_token_broker(api_key, include_feed_token=True)
-        if AUTH_TOKEN is None:
+    # Case 1: API-based authentication (when api_key is provided)
+    if api_key:
+        try:
+            from utils.broker_resolver import resolve_broker_and_tokens
+            broker_name, AUTH_TOKEN, FEED_TOKEN = resolve_broker_and_tokens(api_key, broker)
+            
+            return get_quotes_with_auth(AUTH_TOKEN, FEED_TOKEN, broker_name, symbol, exchange)
+            
+        except ValueError as e:
             return False, {
                 'status': 'error',
-                'message': 'Invalid openalgo apikey'
-            }, 403
-        return get_quotes_with_auth(AUTH_TOKEN, FEED_TOKEN, broker_name, symbol, exchange)
+                'message': str(e)
+            }, 400
+        except Exception as e:
+            logger.error(f"Error resolving broker and tokens: {e}")
+            return False, {
+                'status': 'error',
+                'message': 'Authentication error'
+            }, 500
     
     # Case 2: Direct internal call with auth_token and broker
     elif auth_token and broker:

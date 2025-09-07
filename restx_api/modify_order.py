@@ -42,10 +42,14 @@ class ModifyOrder(Resource):
             # Extract API key
             api_key = order_data.pop('apikey', None)
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = order_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to modify the order
             success, response_data, status_code = modify_order(
                 order_data=order_data,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

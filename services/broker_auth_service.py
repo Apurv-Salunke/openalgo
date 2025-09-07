@@ -69,16 +69,30 @@ class BrokerAuthService:
                 final_totp = totp_code
                 logger.info(f"Using provided TOTP code for user {user_id}")
             
-            # Call broker-specific authentication function
-            auth_result = BrokerAuthService._call_broker_auth_function(
+            # Call broker-specific authentication function using brlogin.py pattern
+            auth_result = BrokerAuthService._call_broker_auth_function_brlogin_style(
                 broker_name=broker_name,
-                broker_api_creds=broker_api,
                 user_trading_creds=user_trading,
                 totp_code=final_totp
             )
             
             if auth_result['success']:
                 logger.info(f"Successfully authenticated user {user_id} with broker {broker_name}")
+                
+                # Use the same handle_auth_success pattern as brlogin.py
+                auth_token = auth_result.get('auth_token')
+                feed_token = auth_result.get('feed_token')
+                broker_user_id = auth_result.get('user_id')
+                
+                if auth_token:
+                    # Store auth token directly without triggering master contract download
+                    from database.auth_db import upsert_auth
+                    inserted_id = upsert_auth(user_id, auth_token, broker_name, feed_token=feed_token, user_id=broker_user_id)
+                    if inserted_id:
+                        logger.info(f"Successfully stored auth token for user {user_id} with broker {broker_name}")
+                    else:
+                        logger.error(f"Failed to store auth token for user {user_id} with broker {broker_name}")
+                
             else:
                 logger.warning(f"Authentication failed for user {user_id} with broker {broker_name}: {auth_result.get('error')}")
             
@@ -90,6 +104,160 @@ class BrokerAuthService:
                 'success': False,
                 'error': f'Authentication error: {str(e)}',
                 'error_code': 'AUTHENTICATION_ERROR'
+            }
+    
+    @staticmethod
+    def _call_broker_auth_function_brlogin_style(broker_name: str, user_trading_creds: Dict, totp_code: str) -> Dict[str, Any]:
+        """
+        Call broker authentication function using the exact same pattern as brlogin.py
+        
+        Args:
+            broker_name: Name of the broker
+            user_trading_creds: User trading credentials
+            totp_code: TOTP code
+            
+        Returns:
+            Dict with authentication result
+        """
+        try:
+            # Get broker authentication functions using the same pattern as brlogin.py
+            from flask import current_app
+            broker_auth_functions = current_app.broker_auth_functions
+            auth_function = broker_auth_functions.get(f'{broker_name}_auth')
+            
+            if not auth_function:
+                logger.error(f"Authentication function not found for broker: {broker_name}")
+                return {
+                    'success': False,
+                    'error': f'Authentication function not implemented for {broker_name}',
+                    'error_code': 'AUTH_FUNCTION_NOT_FOUND'
+                }
+            
+            # Call broker authentication following the exact same pattern as brlogin.py
+            if broker_name == 'angel':
+                # Angel One pattern from brlogin.py lines 75-82
+                clientcode = user_trading_creds.get('client_id')
+                broker_pin = user_trading_creds.get('pin')
+                user_id = clientcode
+                
+                if not clientcode or not broker_pin:
+                    return {
+                        'success': False,
+                        'error': 'Angel One requires client_id and pin',
+                        'error_code': 'MISSING_CREDENTIALS'
+                    }
+                
+                # Get stored API credentials and temporarily set environment variables
+                # This is needed because broker auth functions use os.getenv()
+                api_creds = CredentialManager.get_broker_api(broker_name)
+                if not api_creds:
+                    return {
+                        'success': False,
+                        'error': 'Broker API credentials not found',
+                        'error_code': 'API_CREDENTIALS_MISSING'
+                    }
+                
+                # Temporarily set environment variables for the broker auth function
+                old_api_key = os.environ.get('BROKER_API_KEY')
+                old_api_secret = os.environ.get('BROKER_API_SECRET')
+                
+                try:
+                    os.environ['BROKER_API_KEY'] = api_creds['api_key']
+                    if api_creds.get('api_secret'):
+                        os.environ['BROKER_API_SECRET'] = api_creds['api_secret']
+                    
+                    # Call exactly like brlogin.py: auth_token, feed_token, error_message = auth_function(clientcode, broker_pin, totp_code)
+                    result = auth_function(clientcode, broker_pin, totp_code)
+                    
+                finally:
+                    # Restore original environment variables
+                    if old_api_key is not None:
+                        os.environ['BROKER_API_KEY'] = old_api_key
+                    else:
+                        os.environ.pop('BROKER_API_KEY', None)
+                    
+                    if old_api_secret is not None:
+                        os.environ['BROKER_API_SECRET'] = old_api_secret
+                    else:
+                        os.environ.pop('BROKER_API_SECRET', None)
+                
+                if isinstance(result, tuple) and len(result) >= 2:
+                    auth_token, feed_token, error_message = result if len(result) == 3 else (*result, None)
+                    
+                    if auth_token:
+                        return {
+                            'success': True,
+                            'auth_token': auth_token,
+                            'feed_token': feed_token,
+                            'user_id': user_id,
+                            'broker_name': broker_name
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'error': error_message or 'Authentication failed',
+                            'error_code': 'AUTH_FAILED'
+                        }
+                else:
+                    return {
+                        'success': False,
+                        'error': 'Invalid response from broker authentication function',
+                        'error_code': 'INVALID_RESPONSE'
+                    }
+            
+            elif broker_name == 'zebu':
+                # Zebu pattern from brlogin.py lines 314-320
+                userid = user_trading_creds.get('user_id_broker')
+                password = user_trading_creds.get('password')
+                
+                if not userid or not password:
+                    return {
+                        'success': False,
+                        'error': 'Zebu requires user_id_broker and password',
+                        'error_code': 'MISSING_CREDENTIALS'
+                    }
+                
+                # Call exactly like brlogin.py: auth_token, error_message = auth_function(userid, password, totp_code)
+                result = auth_function(userid, password, totp_code)
+                
+                if isinstance(result, tuple) and len(result) >= 2:
+                    auth_token, error_message = result
+                    
+                    if auth_token:
+                        return {
+                            'success': True,
+                            'auth_token': auth_token,
+                            'feed_token': None,  # Zebu doesn't have feed token
+                            'user_id': userid,
+                            'broker_name': broker_name
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'error': error_message or 'Authentication failed',
+                            'error_code': 'AUTH_FAILED'
+                        }
+                else:
+                    return {
+                        'success': False,
+                        'error': 'Invalid response from broker authentication function',
+                        'error_code': 'INVALID_RESPONSE'
+                    }
+            
+            else:
+                # For other brokers, we need to implement their specific patterns from brlogin.py
+                return {
+                    'success': False,
+                    'error': f'Authentication pattern not implemented for broker: {broker_name}',
+                    'error_code': 'NOT_IMPLEMENTED'
+                }
+                
+        except Exception as e:
+            logger.error(f"Error calling broker authentication function: {e}")
+            return {
+                'success': False,
+                'error': f'Authentication function error: {str(e)}',
+                'error_code': 'FUNCTION_ERROR'
             }
     
     @staticmethod

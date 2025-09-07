@@ -40,10 +40,14 @@ class AnalyzerStatus(Resource):
             # Extract API key
             api_key = analyzer_data.pop('apikey', None)
             
+            # Extract broker parameter (optional)
+            requested_broker = analyzer_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get analyzer status
             success, response_data, status_code = get_analyzer_status(
                 analyzer_data=analyzer_data,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)
@@ -75,10 +79,14 @@ class AnalyzerToggle(Resource):
             # Extract API key
             api_key = analyzer_data.pop('apikey', None)
             
+            # Extract broker parameter (optional)
+            requested_broker = analyzer_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to toggle analyzer mode
             success, response_data, status_code = toggle_analyzer_mode(
                 analyzer_data=analyzer_data,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

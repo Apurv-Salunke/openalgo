@@ -30,8 +30,14 @@ class Funds(Resource):
 
             api_key = funds_data['apikey']
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = funds_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get funds data with API key
-            success, response_data, status_code = get_funds(api_key=api_key)
+            success, response_data, status_code = get_funds(
+                api_key=api_key,
+                broker=requested_broker
+            )
             return make_response(jsonify(response_data), status_code)
 
         except ValidationError as err:

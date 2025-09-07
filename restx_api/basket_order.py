@@ -44,10 +44,14 @@ class BasketOrder(Resource):
             # Extract API key
             api_key = basket_data.pop('apikey', None)
             
+            # Extract broker parameter (optional)
+            requested_broker = basket_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to place the basket order
             success, response_data, status_code = place_basket_order(
                 basket_data=basket_data,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

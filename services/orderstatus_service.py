@@ -519,22 +519,34 @@ def get_order_status(
     if api_key:
         original_data['apikey'] = api_key
     
-    # Case 1: API-based authentication
-    if api_key and not (auth_token and broker):
+    # Case 1: API-based authentication (when api_key is provided)
+    if api_key:
         # Add API key to status data
         status_data['apikey'] = api_key
         
-        AUTH_TOKEN, broker_name = get_auth_token_broker(api_key)
-        if AUTH_TOKEN is None:
+        try:
+            from utils.broker_resolver import resolve_broker_and_tokens
+            broker_name, AUTH_TOKEN, feed_token = resolve_broker_and_tokens(api_key, broker)
+            
+            return get_order_status_with_auth(status_data, AUTH_TOKEN, broker_name, original_data)
+            
+        except ValueError as e:
             error_response = {
                 'status': 'error',
-                'message': 'Invalid openalgo apikey'
+                'message': str(e)
             }
             if not get_analyze_mode():
                 log_executor.submit(async_log_order, 'orderstatus', original_data, error_response)
-            return False, error_response, 403
-        
-        return get_order_status_with_auth(status_data, AUTH_TOKEN, broker_name, original_data)
+            return False, error_response, 400
+        except Exception as e:
+            logger.error(f"Error resolving broker and tokens: {e}")
+            error_response = {
+                'status': 'error',
+                'message': 'Authentication error'
+            }
+            if not get_analyze_mode():
+                log_executor.submit(async_log_order, 'orderstatus', original_data, error_response)
+            return False, error_response, 500
     
     # Case 2: Direct internal call with auth_token and broker
     elif auth_token and broker:

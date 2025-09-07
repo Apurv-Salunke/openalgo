@@ -42,10 +42,14 @@ class SmartOrder(Resource):
             # Extract API key
             api_key = order_data.pop('apikey', None)
             
+            # Extract broker parameter (optional)
+            requested_broker = order_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to place the smart order
             success, response_data, status_code = place_smart_order(
                 order_data=order_data,
                 api_key=api_key,
+                broker=requested_broker,
                 smart_order_delay=SMART_ORDER_DELAY
             )
             

@@ -1,7 +1,7 @@
 from flask_restx import Namespace, Resource, fields
 from flask import request, jsonify, make_response, Response
 from marshmallow import ValidationError
-from database.auth_db import get_auth_token_broker
+from database.auth_db import verify_api_key
 from limiter import limiter
 import os
 import importlib
@@ -163,17 +163,34 @@ class Ticker(Resource):
                     logger.info(f"Date range restricted for {history_data['symbol']} ({history_data['interval']}): {adjusted_start} to {adjusted_end}")
 
             api_key = history_data['apikey']
-            AUTH_TOKEN, broker = get_auth_token_broker(api_key)
-            if AUTH_TOKEN is None:
+            
+            # Extract broker parameter (optional)
+            requested_broker = history_data.get('broker') or request.headers.get('X-BROKER')
+            
+            try:
+                from utils.broker_resolver import resolve_broker_and_tokens
+                broker, AUTH_TOKEN, feed_token = resolve_broker_and_tokens(api_key, requested_broker)
+            except ValueError as e:
                 if response_format == 'txt':
-                    response = TextResponse('Invalid openalgo apikey\n')
+                    response = TextResponse(f'{str(e)}\n')
                     response.content_type = 'text/plain'
                     response.json = {'request_id': f"ticker_{symbol}_{history_data['interval']}"}
-                    return response, 403
+                    return response, 400
                 return make_response(jsonify({
                     'status': 'error',
-                    'message': 'Invalid openalgo apikey'
-                }), 403)
+                    'message': str(e)
+                }), 400)
+            except Exception as e:
+                logger.error(f"Error resolving broker and tokens: {e}")
+                if response_format == 'txt':
+                    response = TextResponse('Authentication error\n')
+                    response.content_type = 'text/plain'
+                    response.json = {'request_id': f"ticker_{symbol}_{history_data['interval']}"}
+                    return response, 500
+                return make_response(jsonify({
+                    'status': 'error',
+                    'message': 'Authentication error'
+                }), 500)
 
             broker_module = import_broker_module(broker)
             if broker_module is None:

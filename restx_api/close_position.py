@@ -42,10 +42,14 @@ class ClosePosition(Resource):
             # Extract API key
             api_key = position_data.pop('apikey', None)
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = position_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to close all positions
             success, response_data, status_code = close_position(
                 position_data=position_data,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

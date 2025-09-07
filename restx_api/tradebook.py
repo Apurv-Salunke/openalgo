@@ -27,8 +27,14 @@ class Tradebook(Resource):
 
             api_key = tradebook_data['apikey']
             
+            # Extract broker parameter (optional)
+            requested_broker = tradebook_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get tradebook data with API key
-            success, response_data, status_code = get_tradebook(api_key=api_key)
+            success, response_data, status_code = get_tradebook(
+                api_key=api_key,
+                broker=requested_broker
+            )
             
             return make_response(jsonify(response_data), status_code)
 

@@ -29,8 +29,14 @@ class Holdings(Resource):
 
             api_key = holdings_data['apikey']
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = holdings_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get holdings data with API key
-            success, response_data, status_code = get_holdings(api_key=api_key)
+            success, response_data, status_code = get_holdings(
+                api_key=api_key,
+                broker=requested_broker
+            )
             
             return make_response(jsonify(response_data), status_code)
 

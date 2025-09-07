@@ -1,7 +1,7 @@
 import copy
 from typing import Tuple, Dict, Any, Optional
 
-from database.auth_db import get_auth_token_broker
+from database.auth_db import verify_api_key
 from database.settings_db import get_analyze_mode, set_analyze_mode
 from database.analyzer_db import AnalyzerLog, db_session
 from database.apilog_db import async_log_order, executor as log_executor
@@ -146,21 +146,32 @@ def get_analyzer_status(
     if api_key:
         original_data['apikey'] = api_key
     
-    # Case 1: API-based authentication
-    if api_key and not (auth_token and broker):
+    # Case 1: API-based authentication (when api_key is provided)
+    if api_key:
         # Add API key to analyzer data
         analyzer_data['apikey'] = api_key
         
-        AUTH_TOKEN, broker_name = get_auth_token_broker(api_key)
-        if AUTH_TOKEN is None:
+        try:
+            from utils.broker_resolver import resolve_broker_and_tokens
+            broker_name, AUTH_TOKEN, feed_token = resolve_broker_and_tokens(api_key, broker)
+            
+            return get_analyzer_status_with_auth(analyzer_data, AUTH_TOKEN, broker_name, original_data)
+            
+        except ValueError as e:
             error_response = {
                 'status': 'error',
-                'message': 'Invalid openalgo apikey'
+                'message': str(e)
             }
             log_executor.submit(async_log_order, 'analyzer_status', original_data, error_response)
-            return False, error_response, 403
-        
-        return get_analyzer_status_with_auth(analyzer_data, AUTH_TOKEN, broker_name, original_data)
+            return False, error_response, 400
+        except Exception as e:
+            logger.error(f"Error resolving broker and tokens: {e}")
+            error_response = {
+                'status': 'error',
+                'message': 'Authentication error'
+            }
+            log_executor.submit(async_log_order, 'analyzer_status', original_data, error_response)
+            return False, error_response, 500
     
     # Case 2: Direct internal call with auth_token and broker
     elif auth_token and broker:
@@ -200,21 +211,32 @@ def toggle_analyzer_mode(
     if api_key:
         original_data['apikey'] = api_key
     
-    # Case 1: API-based authentication
-    if api_key and not (auth_token and broker):
+    # Case 1: API-based authentication (when api_key is provided)
+    if api_key:
         # Add API key to analyzer data
         analyzer_data['apikey'] = api_key
         
-        AUTH_TOKEN, broker_name = get_auth_token_broker(api_key)
-        if AUTH_TOKEN is None:
+        try:
+            from utils.broker_resolver import resolve_broker_and_tokens
+            broker_name, AUTH_TOKEN, feed_token = resolve_broker_and_tokens(api_key, broker)
+            
+            return toggle_analyzer_mode_with_auth(analyzer_data, AUTH_TOKEN, broker_name, original_data)
+            
+        except ValueError as e:
             error_response = {
                 'status': 'error',
-                'message': 'Invalid openalgo apikey'
+                'message': str(e)
             }
             log_executor.submit(async_log_order, 'analyzer_toggle', original_data, error_response)
-            return False, error_response, 403
-        
-        return toggle_analyzer_mode_with_auth(analyzer_data, AUTH_TOKEN, broker_name, original_data)
+            return False, error_response, 400
+        except Exception as e:
+            logger.error(f"Error resolving broker and tokens: {e}")
+            error_response = {
+                'status': 'error',
+                'message': 'Authentication error'
+            }
+            log_executor.submit(async_log_order, 'analyzer_toggle', original_data, error_response)
+            return False, error_response, 500
     
     # Case 2: Direct internal call with auth_token and broker
     elif auth_token and broker:

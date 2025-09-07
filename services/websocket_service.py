@@ -6,7 +6,7 @@ without dealing with authentication or connection management.
 
 import os
 from typing import Dict, List, Any, Optional, Tuple
-from database.auth_db import verify_api_key, get_auth_token, get_broker_name
+from database.auth_db import verify_api_key, get_auth_token, get_broker_name, get_user_brokers
 from utils.logging import get_logger
 from .websocket_client import get_websocket_client, WebSocketClient
 
@@ -95,7 +95,14 @@ def get_websocket_status(username: str, broker: Optional[str] = None) -> Tuple[b
         if not broker:
             api_key = get_user_api_key(username)
             if api_key:
-                broker = get_broker_name(api_key)
+                # In multi-broker scenario, get the first available broker
+                # or let the caller specify which broker to use
+                user_brokers = get_user_brokers(api_key)
+                if user_brokers:
+                    broker = user_brokers[0]  # Use first broker as default
+                    logger.info(f"Using default broker '{broker}' for user '{username}'")
+                else:
+                    logger.warning(f"No brokers found for user '{username}'")
         
         # Get subscription info
         subscriptions = client.get_subscriptions()
