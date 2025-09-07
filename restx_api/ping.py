@@ -29,8 +29,14 @@ class Ping(Resource):
 
             api_key = ping_data['apikey']
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = ping_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get ping response with API key
-            success, response_data, status_code = get_ping(api_key=api_key)
+            success, response_data, status_code = get_ping(
+                api_key=api_key,
+                broker=requested_broker
+            )
             return make_response(jsonify(response_data), status_code)
 
         except ValidationError as err:

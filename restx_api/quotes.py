@@ -30,11 +30,15 @@ class Quotes(Resource):
             symbol = quotes_data['symbol']
             exchange = quotes_data['exchange']
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = quotes_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get quotes data with API key
             success, response_data, status_code = get_quotes(
                 symbol=symbol,
                 exchange=exchange,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

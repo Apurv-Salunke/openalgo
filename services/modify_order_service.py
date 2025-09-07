@@ -180,7 +180,7 @@ def modify_order(
         order_data: Order data containing the modifications
         api_key: OpenAlgo API key (for API-based calls)
         auth_token: Direct broker authentication token (for internal calls)
-        broker: Direct broker name (for internal calls)
+        broker: Direct broker name (for internal calls) or requested broker (for multi-broker support)
         
     Returns:
         Tuple containing:
@@ -192,22 +192,38 @@ def modify_order(
     if api_key:
         original_data['apikey'] = api_key
     
-    # Case 1: API-based authentication
-    if api_key and not (auth_token and broker):
+    # Case 1: API-based authentication (when api_key is provided)
+    if api_key:
         # Add API key to order data
         order_data['apikey'] = api_key
         
-        AUTH_TOKEN, broker_name = get_auth_token_broker(api_key)
-        if AUTH_TOKEN is None:
+        try:
+            from utils.broker_resolver import resolve_broker_and_tokens
+            broker_name, AUTH_TOKEN, feed_token = resolve_broker_and_tokens(api_key, broker)
+            
+            # Add broker info to response for transparency
+            if broker:
+                order_data['_resolved_broker'] = broker_name
+            
+            return modify_order_with_auth(order_data, AUTH_TOKEN, broker_name, original_data)
+            
+        except ValueError as e:
             error_response = {
                 'status': 'error',
-                'message': 'Invalid openalgo apikey'
+                'message': str(e)
             }
             if not get_analyze_mode():
                 executor.submit(async_log_order, 'modifyorder', original_data, error_response)
-            return False, error_response, 403
-        
-        return modify_order_with_auth(order_data, AUTH_TOKEN, broker_name, original_data)
+            return False, error_response, 400
+        except Exception as e:
+            logger.error(f"Error resolving broker and tokens: {e}")
+            error_response = {
+                'status': 'error',
+                'message': 'Authentication error'
+            }
+            if not get_analyze_mode():
+                executor.submit(async_log_order, 'modifyorder', original_data, error_response)
+            return False, error_response, 500
     
     # Case 2: Direct internal call with auth_token and broker
     elif auth_token and broker:

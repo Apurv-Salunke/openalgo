@@ -41,10 +41,14 @@ class SplitOrder(Resource):
             # Extract API key
             api_key = split_data.pop('apikey', None)
             
+            # Extract broker parameter (optional)
+            requested_broker = split_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to split the order
             success, response_data, status_code = split_order(
                 split_data=split_data,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

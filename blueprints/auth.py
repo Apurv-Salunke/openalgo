@@ -47,7 +47,17 @@ def login():
         
         if authenticate_user(username, password):
             session['user'] = username  # Set the username in the session
-            logger.info(f"Login success for user: {username}")
+            
+            # Check if user is admin and store in session
+            from database.user_db import User
+            user = User.query.filter_by(username=username).first()
+            if user and user.is_admin:
+                session['is_admin'] = True
+                logger.info(f"Admin login success for user: {username}")
+            else:
+                session['is_admin'] = False
+                logger.info(f"Regular user login success for user: {username}")
+            
             # Redirect to broker login without marking as fully logged in
             return jsonify({'status': 'success'}), 200
         else:

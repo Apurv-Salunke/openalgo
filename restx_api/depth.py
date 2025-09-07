@@ -31,11 +31,15 @@ class Depth(Resource):
             symbol = depth_data['symbol']
             exchange = depth_data['exchange']
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = depth_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get depth data with API key
             success, response_data, status_code = get_depth(
                 symbol=symbol,
                 exchange=exchange,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

@@ -31,11 +31,15 @@ class Symbol(Resource):
             symbol = symbol_data['symbol']
             exchange = symbol_data['exchange']
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = symbol_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get symbol information
             success, response_data, status_code = get_symbol_info(
                 symbol=symbol,
                 exchange=exchange,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)

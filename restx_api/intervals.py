@@ -29,8 +29,14 @@ class Intervals(Resource):
 
             api_key = intervals_data['apikey']
             
+            # Extract broker parameter (optional)
+            requested_broker = intervals_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to get intervals data with API key
-            success, response_data, status_code = get_intervals(api_key=api_key)
+            success, response_data, status_code = get_intervals(
+                api_key=api_key,
+                broker=requested_broker
+            )
             
             return make_response(jsonify(response_data), status_code)
 

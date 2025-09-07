@@ -60,12 +60,17 @@ Base.query = db_session.query_property()
 class Auth(Base):
     __tablename__ = 'auth'
     id = Column(Integer, primary_key=True)
-    name = Column(String(255), unique=True, nullable=False)
+    name = Column(String(255), nullable=False)  # Removed unique=True for multi-broker support
     auth = Column(Text, nullable=False)
     feed_token = Column(Text, nullable=True)  # Make it nullable as not all brokers will provide this
     broker = Column(String(20), nullable=False)
     user_id = Column(String(255), nullable=True)  # Add user_id column
     is_revoked = Column(Boolean, default=False)
+    
+    # Composite unique constraint: one auth token per user per broker
+    __table_args__ = (
+        UniqueConstraint('name', 'broker', name='idx_auth_name_broker_unique'),
+    )
 
 class ApiKeys(Base):
     __tablename__ = 'api_keys'
@@ -100,11 +105,11 @@ def upsert_auth(name, auth_token, broker, feed_token=None, user_id=None, revoke=
     encrypted_token = encrypt_token(auth_token)
     encrypted_feed_token = encrypt_token(feed_token) if feed_token else None
     
-    auth_obj = Auth.query.filter_by(name=name).first()
+    # Query by both name and broker for multi-broker support
+    auth_obj = Auth.query.filter_by(name=name, broker=broker).first()
     if auth_obj:
         auth_obj.auth = encrypted_token
         auth_obj.feed_token = encrypted_feed_token
-        auth_obj.broker = broker
         auth_obj.user_id = user_id
         auth_obj.is_revoked = revoke
     else:
@@ -130,13 +135,17 @@ def get_auth_token(name):
             return decrypt_token(auth_obj.auth)
         return None
 
-def get_auth_token_dbquery(name):
+def get_auth_token_dbquery(name, broker=None):
     try:
-        auth_obj = Auth.query.filter_by(name=name).first()
+        query = Auth.query.filter_by(name=name)
+        if broker:
+            query = query.filter_by(broker=broker)
+        
+        auth_obj = query.first()
         if auth_obj and not auth_obj.is_revoked:
             return auth_obj
         else:
-            logger.warning(f"No valid auth token found for name '{name}'.")
+            logger.warning(f"No valid auth token found for name '{name}'" + (f" and broker '{broker}'" if broker else ""))
             return None
     except Exception as e:
         logger.error(f"Error while querying the database for auth token: {e}")
@@ -279,3 +288,92 @@ def get_auth_token_broker(provided_api_key, include_feed_token=False):
             return (None, None, None) if include_feed_token else (None, None)
     else:
         return (None, None, None) if include_feed_token else (None, None)
+
+# Multi-broker support functions
+def get_auth_token_by_broker(name, broker):
+    """Get decrypted auth token for a specific broker"""
+    cache_key = f"auth-{name}-{broker}"
+    if cache_key in auth_cache:
+        auth_obj = auth_cache[cache_key]
+        if isinstance(auth_obj, Auth) and not auth_obj.is_revoked:
+            return decrypt_token(auth_obj.auth)
+        else:
+            del auth_cache[cache_key]
+            return None
+    else:
+        auth_obj = get_auth_token_dbquery(name, broker)
+        if isinstance(auth_obj, Auth) and not auth_obj.is_revoked:
+            auth_cache[cache_key] = auth_obj
+            return decrypt_token(auth_obj.auth)
+        return None
+
+def get_user_brokers(name):
+    """Get list of brokers configured for a user"""
+    try:
+        auth_objects = Auth.query.filter_by(name=name, is_revoked=False).all()
+        return [auth_obj.broker for auth_obj in auth_objects]
+    except Exception as e:
+        logger.error(f"Error getting user brokers: {e}")
+        return []
+
+def get_user_default_broker(name):
+    """Get the default broker for a user (first non-revoked broker)"""
+    try:
+        auth_obj = Auth.query.filter_by(name=name, is_revoked=False).first()
+        return auth_obj.broker if auth_obj else None
+    except Exception as e:
+        logger.error(f"Error getting user default broker: {e}")
+        return None
+
+def get_feed_token_by_broker(name, broker):
+    """Get decrypted feed token for a specific broker"""
+    cache_key = f"feed-{name}-{broker}"
+    if cache_key in feed_token_cache:
+        auth_obj = feed_token_cache[cache_key]
+        if isinstance(auth_obj, Auth) and not auth_obj.is_revoked:
+            return decrypt_token(auth_obj.feed_token) if auth_obj.feed_token else None
+        else:
+            del feed_token_cache[cache_key]
+            return None
+    else:
+        auth_obj = get_auth_token_dbquery(name, broker)
+        if isinstance(auth_obj, Auth) and not auth_obj.is_revoked:
+            feed_token_cache[cache_key] = auth_obj
+            return decrypt_token(auth_obj.feed_token) if auth_obj.feed_token else None
+        return None
+
+def revoke_user_tokens(name, broker=None):
+    """Revoke auth tokens for a user, optionally for a specific broker"""
+    try:
+        query = Auth.query.filter_by(name=name)
+        if broker:
+            query = query.filter_by(broker=broker)
+        
+        auth_objects = query.all()
+        for auth_obj in auth_objects:
+            auth_obj.is_revoked = True
+        
+        db_session.commit()
+        
+        # Clear cache
+        if broker:
+            cache_key = f"auth-{name}-{broker}"
+            if cache_key in auth_cache:
+                del auth_cache[cache_key]
+            feed_cache_key = f"feed-{name}-{broker}"
+            if feed_cache_key in feed_token_cache:
+                del feed_token_cache[feed_cache_key]
+        else:
+            # Clear all caches for this user
+            keys_to_remove = [key for key in auth_cache.keys() if key.startswith(f"auth-{name}")]
+            for key in keys_to_remove:
+                del auth_cache[key]
+            feed_keys_to_remove = [key for key in feed_token_cache.keys() if key.startswith(f"feed-{name}")]
+            for key in feed_keys_to_remove:
+                del feed_token_cache[key]
+        
+        logger.info(f"Revoked tokens for user {name}" + (f" and broker {broker}" if broker else ""))
+        return True
+    except Exception as e:
+        logger.error(f"Error revoking user tokens: {e}")
+        return False

@@ -43,10 +43,14 @@ class CancelOrder(Resource):
             api_key = order_data.pop('apikey', None)
             orderid = order_data.get('orderid')
             
+            # Extract broker parameter (from JSON body or X-BROKER header)
+            requested_broker = order_data.get('broker') or request.headers.get('X-BROKER')
+            
             # Call the service function to cancel the order
             success, response_data, status_code = cancel_order(
                 orderid=orderid,
-                api_key=api_key
+                api_key=api_key,
+                broker=requested_broker
             )
             
             return make_response(jsonify(response_data), status_code)
