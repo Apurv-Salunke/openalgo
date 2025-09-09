@@ -33,8 +33,7 @@ broker_setup_model = broker_creds_ns.model('BrokerSetup', {
     'mobile_number': fields.String(description='Mobile number'),
     'password': fields.String(description='Trading password'),
     'pin': fields.String(description='Trading PIN'),
-    'totp_option': fields.String(required=True, description='TOTP option: manual or stored', enum=['manual', 'stored']),
-    'totp_secret': fields.String(description='TOTP secret key (required if totp_option=stored)')
+    'totp_secret': fields.String(description='TOTP secret key (optional - if provided = automatic, if not = manual)')
 })
 
 # Response model
@@ -42,6 +41,7 @@ setup_response_model = broker_creds_ns.model('SetupResponse', {
     'success': fields.Boolean(description='Whether setup was successful'),
     'message': fields.String(description='Success/error message'),
     'broker_name': fields.String(description='Broker name'),
+    'totp_option': fields.String(description='TOTP option: automatic or manual'),
     'validation_passed': fields.Boolean(description='Whether broker validation passed'),
     'auth_token': fields.String(description='Authentication token if successful')
 })
@@ -86,6 +86,8 @@ class BrokerSetup(Resource):
                 return {
                     'success': False,
                     'message': 'broker_name is required',
+                    'broker_name': None,
+                    'totp_option': None,
                     'validation_passed': False
                 }, 400
             
@@ -97,6 +99,8 @@ class BrokerSetup(Resource):
                 return {
                     'success': False,
                     'message': 'api_key is required',
+                    'broker_name': broker_name,
+                    'totp_option': None,
                     'validation_passed': False
                 }, 400
             
@@ -106,16 +110,12 @@ class BrokerSetup(Resource):
                 if data.get(field):
                     trading_creds[field] = data[field]
             
-            totp_option = data.get('totp_option', 'manual')
+            # Determine TOTP option based on whether totp_secret is provided
             totp_secret = data.get('totp_secret')
-            
-            # Validate TOTP setup
-            if totp_option == 'stored' and not totp_secret:
-                return {
-                    'success': False,
-                    'message': 'totp_secret is required when totp_option=stored',
-                    'validation_passed': False
-                }, 400
+            if totp_secret:
+                totp_option = 'automatic'
+            else:
+                totp_option = 'manual'
             
             logger.info(f"Setting up broker credentials for {broker_name}")
             
@@ -130,6 +130,8 @@ class BrokerSetup(Resource):
                 return {
                     'success': False,
                     'message': 'Failed to store broker API credentials',
+                    'broker_name': broker_name,
+                    'totp_option': totp_option,
                     'validation_passed': False
                 }, 500
             
@@ -146,52 +148,64 @@ class BrokerSetup(Resource):
                 return {
                     'success': False,
                     'message': 'Failed to store user trading credentials',
+                    'broker_name': broker_name,
+                    'totp_option': totp_option,
                     'validation_passed': False
                 }, 500
             
             # Step 3: Validate credentials by attempting authentication
             logger.info(f"Validating credentials with {broker_name}")
             
-            auth_result = BrokerAuthService.authenticate_user_with_broker(
-                user_id=user_id,
-                broker_name=broker_name,
-                totp_code=None  # Use stored TOTP if available
-            )
+            # Only attempt validation if TOTP is automatic (stored secret available)
+            validation_passed = False
+            auth_token = None
             
-            if auth_result['success']:
-                # Store auth token in existing system
-                auth_token = auth_result.get('auth_token')
-                feed_token = auth_result.get('feed_token')
-                broker_user_id = auth_result.get('user_id')
+            if totp_option == 'automatic':
+                # Attempt authentication with stored TOTP
+                auth_result = BrokerAuthService.authenticate_user_with_broker(
+                    user_id=user_id,
+                    broker_name=broker_name,
+                    totp_code=None  # Use stored TOTP
+                )
                 
-                # Authentication successful - tokens already stored by BrokerAuthService
-                # No need to trigger master contract download for API setup
-                logger.info(f"Successfully set up and validated {broker_name} for user {user_id}")
-                
+                if auth_result['success']:
+                    validation_passed = True
+                    auth_token = auth_result.get('auth_token')
+                    logger.info(f"Successfully validated {broker_name} credentials with automatic TOTP")
+                else:
+                    error_msg = auth_result.get('error', 'Credential validation failed')
+                    logger.warning(f"Validation failed for {broker_name}: {error_msg}")
+            else:
+                # Manual TOTP - skip validation, user will authenticate later
+                logger.info(f"Manual TOTP mode - skipping validation for {broker_name}")
+            
+            # Return success response with validation status
+            if validation_passed:
                 return {
-                        'success': True,
-                        'message': f'Successfully configured and validated {broker_name} credentials',
-                        'broker_name': broker_name,
-                        'validation_passed': True,
-                        'auth_token': auth_token
-                    }
-            
-            # Authentication failed - credentials are stored but not validated
-            error_msg = auth_result.get('error', 'Credential validation failed')
-            logger.warning(f"Credentials stored but validation failed for {broker_name}: {error_msg}")
-            
-            return {
-                'success': False,
-                'message': f'Credentials stored but validation failed: {error_msg}',
-                'broker_name': broker_name,
-                'validation_passed': False
-            }, 400
+                    'success': True,
+                    'message': f'Successfully configured and validated {broker_name} credentials',
+                    'broker_name': broker_name,
+                    'totp_option': totp_option,
+                    'validation_passed': True,
+                    'auth_token': auth_token
+                }
+            else:
+                return {
+                    'success': True,
+                    'message': f'Successfully configured {broker_name} credentials (validation skipped for manual TOTP)',
+                    'broker_name': broker_name,
+                    'totp_option': totp_option,
+                    'validation_passed': False,
+                    'auth_token': None
+                }
             
         except Exception as e:
             logger.error(f"Error in broker setup: {e}")
             return {
                 'success': False,
                 'message': f'Server error: {str(e)}',
+                'broker_name': broker_name if 'broker_name' in locals() else None,
+                'totp_option': None,
                 'validation_passed': False
             }, 500
 

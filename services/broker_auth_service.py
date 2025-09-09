@@ -48,7 +48,7 @@ class BrokerAuthService:
             
             # Handle TOTP based on user preference
             final_totp = None
-            if user_trading['totp_option'] == 'stored':
+            if user_trading['totp_option'] == 'automatic':
                 # Generate TOTP from stored secret
                 final_totp = CredentialManager.generate_user_totp(user_id, broker_name)
                 if not final_totp:

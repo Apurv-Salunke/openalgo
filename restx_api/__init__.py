@@ -31,6 +31,7 @@ from .expiry import api as expiry_ns
 from .analyzer import api as analyzer_ns
 from .ping import api as ping_ns
 from .broker_credentials import broker_creds_ns
+from .broker_auth import broker_auth_ns
 
 # Add namespaces
 api.add_namespace(place_order_ns, path='/placeorder')
@@ -59,3 +60,4 @@ api.add_namespace(expiry_ns, path='/expiry')
 api.add_namespace(analyzer_ns, path='/analyzer')
 api.add_namespace(ping_ns, path='/ping')
 api.add_namespace(broker_creds_ns, path='/broker-credentials')
+api.add_namespace(broker_auth_ns, path='/broker-auth')
